@@ -16,6 +16,9 @@ type SensorRepository interface {
     WritePersonelSensor(ctx context.Context, input domain.SensorInput) error
     QueryPersonelSensor(ctx context.Context, page, limit int, start, stop *time.Time) ([]domain.SensorInput, error)
     StreamPersonelSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error
+    // Radar
+    WriteRadarSensor(ctx context.Context, input domain.SensorInput) error
+    StreamRadarSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error
 }
 
 // SensorUsecase mengorkestrasi penyimpanan data sensor.
@@ -50,4 +53,23 @@ func (u SensorUsecase) FetchPersonelSensors(ctx context.Context, page, limit int
 // StreamPersonelSensors mem-forward streaming dari repository.
 func (u SensorUsecase) StreamPersonelSensors(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error {
     return u.repo.StreamPersonelSensor(ctx, start, stop, clientCode, onRow)
+}
+
+// StoreRadarSensor melakukan validasi sederhana lalu menyimpan data ke repository radar.
+func (u SensorUsecase) StoreRadarSensor(ctx context.Context, input domain.SensorInput) error {
+    if input.ClientCode == "" {
+        return errors.New("client_code is required")
+    }
+    if input.JSONData == "" {
+        return errors.New("json_data is required")
+    }
+    if input.Timestamp.IsZero() {
+        return errors.New("timestamp is required")
+    }
+    return u.repo.WriteRadarSensor(ctx, input)
+}
+
+// StreamRadarSensors mem-forward streaming dari repository radar.
+func (u SensorUsecase) StreamRadarSensors(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error {
+    return u.repo.StreamRadarSensor(ctx, start, stop, clientCode, onRow)
 }

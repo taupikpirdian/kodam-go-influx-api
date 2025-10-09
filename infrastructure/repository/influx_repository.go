@@ -70,6 +70,22 @@ func (r *InfluxRepository) WritePersonelSensor(ctx context.Context, input domain
     return r.writeAPI.WritePoint(ctx, p)
 }
 
+// WriteRadarSensor menulis data ke measurement radar_sensor dengan tag client_code
+// dan field json_data.
+func (r *InfluxRepository) WriteRadarSensor(ctx context.Context, input domain.SensorInput) error {
+    p := influxdb2.NewPoint(
+        "radar_sensor",
+        map[string]string{
+            "client_code": input.ClientCode,
+        },
+        map[string]interface{}{
+            "json_data": input.JSONData,
+        },
+        input.Timestamp,
+    )
+    return r.writeAPI.WritePoint(ctx, p)
+}
+
 // QueryPersonelSensor mengambil daftar data sensor dari measurement personel_sensor.
 // Mendukung pagination sederhana (page, limit), filter range waktu (start, stop), dan mengurutkan berdasarkan waktu terbaru.
 func (r *InfluxRepository) QueryPersonelSensor(ctx context.Context, page, limit int, start, stop *time.Time) ([]domain.SensorInput, error) {
@@ -202,6 +218,68 @@ func (r *InfluxRepository) StreamPersonelSensor(ctx context.Context, start, stop
             ClientCode: clientCode,
             JSONData:   jsonData,
         }); err != nil {
+            return err
+        }
+    }
+    if res.Err() != nil {
+        return res.Err()
+    }
+    return nil
+}
+
+// StreamRadarSensor melakukan query dan mem-stream setiap baris hasil melalui callback onRow.
+// Mendukung filter opsional client_code.
+func (r *InfluxRepository) StreamRadarSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error {
+    // Bangun bagian range waktu secara dinamis.
+    var rangeClause string
+    switch {
+    case start != nil && stop != nil:
+        rangeClause = fmt.Sprintf("|> range(start: time(v: %s), stop: time(v: %s))", start.UTC().Format(time.RFC3339), stop.UTC().Format(time.RFC3339))
+    case start != nil && stop == nil:
+        rangeClause = fmt.Sprintf("|> range(start: time(v: %s), stop: time(v: 2100-01-01T00:00:00Z))", start.UTC().Format(time.RFC3339))
+    case start == nil && stop != nil:
+        rangeClause = fmt.Sprintf("|> range(start: time(v: 0), stop: time(v: %s))", stop.UTC().Format(time.RFC3339))
+    default:
+        rangeClause = "|> range(start: time(v: 0), stop: time(v: 2100-01-01T00:00:00Z))"
+    }
+
+    var clientFilterStep string
+    if clientCode != "" {
+        clientFilterStep = fmt.Sprintf("\n        |> filter(fn: (r) => r.client_code == %q)", clientCode)
+    }
+
+    flux := fmt.Sprintf(`from(bucket: %q)
+        %s
+        |> filter(fn: (r) => r._measurement == "radar_sensor")
+        |> filter(fn: (r) => r._field == "json_data")%s
+        |> keep(columns: ["_time", "client_code", "_value"])
+        |> sort(columns: ["_time"], desc: true)`, r.bucket, rangeClause, clientFilterStep)
+
+    q := r.client.QueryAPI(r.org)
+    res, err := q.Query(ctx, flux)
+    if err != nil {
+        return err
+    }
+
+    for res.Next() {
+        rec := res.Record()
+        ts := rec.Time()
+        var cc string
+        if v := rec.ValueByKey("client_code"); v != nil {
+            if s, ok := v.(string); ok {
+                cc = s
+            }
+        }
+        var jsonData string
+        if v := rec.Value(); v != nil {
+            if s, ok := v.(string); ok {
+                jsonData = s
+            } else {
+                jsonData = fmt.Sprintf("%v", v)
+            }
+        }
+
+        if err := onRow(domain.SensorInput{Timestamp: ts, ClientCode: cc, JSONData: jsonData}); err != nil {
             return err
         }
     }

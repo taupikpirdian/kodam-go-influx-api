@@ -19,5 +19,8 @@ func Register(e *echo.Echo, h *handlerPkg.HealthHandler, s *handlerPkg.SensorHan
     e.GET("/health", h.Health)
     e.POST("/api/sensors/personel", s.PostPersonel)
     e.GET("/api/sensors/personel", s.GetPersonel)
+    // Endpoint Radar: sama seperti personel, bedanya measurement menggunakan "radar_sensor"
+    e.POST("/api/sensors/radar", s.PostRadar)
+    e.GET("/api/sensors/radar", s.GetRadar)
     e.POST("/api/test/influx", s.TestStore)
 }
