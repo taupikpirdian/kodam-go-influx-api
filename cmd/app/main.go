@@ -56,8 +56,8 @@ func main() {
     sensorUC := usecase.NewSensorUsecase(influxRepo)
     sensorHandler := handlerPkg.NewSensorHandler(sensorUC)
 
-    // Registrasi rute
-    router.Register(e, healthHandler, sensorHandler)
+    // Registrasi rute dengan middleware keamanan berdasarkan config
+    router.Register(e, healthHandler, sensorHandler, cfg)
 
     // Jalankan server
     if err := e.Start(":3000"); err != nil {

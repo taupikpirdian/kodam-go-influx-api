@@ -19,6 +19,12 @@ type SensorRepository interface {
     // Radar
     WriteRadarSensor(ctx context.Context, input domain.SensorInput) error
     StreamRadarSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error
+    // DF
+    WriteDFSensor(ctx context.Context, input domain.SensorInput) error
+    StreamDFSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error
+    // ADSB
+    WriteADSBSensor(ctx context.Context, input domain.SensorInput) error
+    StreamADSBSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error
 }
 
 // SensorUsecase mengorkestrasi penyimpanan data sensor.
@@ -72,4 +78,42 @@ func (u SensorUsecase) StoreRadarSensor(ctx context.Context, input domain.Sensor
 // StreamRadarSensors mem-forward streaming dari repository radar.
 func (u SensorUsecase) StreamRadarSensors(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error {
     return u.repo.StreamRadarSensor(ctx, start, stop, clientCode, onRow)
+}
+
+// StoreDFSensor melakukan validasi sederhana lalu menyimpan data DF ke repository.
+func (u SensorUsecase) StoreDFSensor(ctx context.Context, input domain.SensorInput) error {
+    if input.ClientCode == "" {
+        return errors.New("client_code is required")
+    }
+    if input.JSONData == "" {
+        return errors.New("json_data is required")
+    }
+    if input.Timestamp.IsZero() {
+        return errors.New("timestamp is required")
+    }
+    return u.repo.WriteDFSensor(ctx, input)
+}
+
+// StreamDFSensors mem-forward streaming dari repository DF.
+func (u SensorUsecase) StreamDFSensors(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error {
+    return u.repo.StreamDFSensor(ctx, start, stop, clientCode, onRow)
+}
+
+// StoreADSBSensor melakukan validasi sederhana lalu menyimpan data ADSB ke repository.
+func (u SensorUsecase) StoreADSBSensor(ctx context.Context, input domain.SensorInput) error {
+    if input.ClientCode == "" {
+        return errors.New("client_code is required")
+    }
+    if input.JSONData == "" {
+        return errors.New("json_data is required")
+    }
+    if input.Timestamp.IsZero() {
+        return errors.New("timestamp is required")
+    }
+    return u.repo.WriteADSBSensor(ctx, input)
+}
+
+// StreamADSBSensors mem-forward streaming dari repository ADSB.
+func (u SensorUsecase) StreamADSBSensors(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error {
+    return u.repo.StreamADSBSensor(ctx, start, stop, clientCode, onRow)
 }
