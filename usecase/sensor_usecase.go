@@ -15,6 +15,7 @@ import (
 type SensorRepository interface {
     WritePersonelSensor(ctx context.Context, input domain.SensorInput) error
     QueryPersonelSensor(ctx context.Context, page, limit int, start, stop *time.Time) ([]domain.SensorInput, error)
+    StreamPersonelSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error
 }
 
 // SensorUsecase mengorkestrasi penyimpanan data sensor.
@@ -44,4 +45,9 @@ func (u SensorUsecase) StorePersonelSensor(ctx context.Context, input domain.Sen
 // FetchPersonelSensors mengambil daftar data sensor untuk keperluan listing.
 func (u SensorUsecase) FetchPersonelSensors(ctx context.Context, page, limit int, start, stop *time.Time) ([]domain.SensorInput, error) {
     return u.repo.QueryPersonelSensor(ctx, page, limit, start, stop)
+}
+
+// StreamPersonelSensors mem-forward streaming dari repository.
+func (u SensorUsecase) StreamPersonelSensors(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error {
+    return u.repo.StreamPersonelSensor(ctx, start, stop, clientCode, onRow)
 }

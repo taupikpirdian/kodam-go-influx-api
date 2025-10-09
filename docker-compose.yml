@@ -45,6 +45,23 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+      args:
+        GO_VERSION: "1.22"
+    working_dir: /src
+    volumes:
+      - .:/src
+      - go-cache:/go/pkg/mod
+    env_file:
+      - .env
+    depends_on:
+      - db
+    command: ["go", "run", "cmd/seed/main.go"]
+
 volumes:
   pgdata:
   go-cache:

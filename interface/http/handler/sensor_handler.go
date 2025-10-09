@@ -4,8 +4,8 @@ package handler
 // Peran: Mengelola HTTP endpoint untuk menyimpan data sensor personel.
 
 import (
+    "encoding/json"
     "net/http"
-    "strconv"
     "strings"
     "time"
 
@@ -160,19 +160,8 @@ type listResponseMeta struct {
 // Contoh curl:
 // curl --location 'http://localhost:3000/api/sensors/personel'
 func (h *SensorHandler) GetPersonel(c echo.Context) error {
-    // Ambil query param page & limit (opsional)
-    page := 1
-    limit := 50
-    if p := c.QueryParam("page"); p != "" {
-        if v, err := strconv.Atoi(p); err == nil && v > 0 {
-            page = v
-        }
-    }
-    if l := c.QueryParam("limit"); l != "" {
-        if v, err := strconv.Atoi(l); err == nil && v > 0 {
-            limit = v
-        }
-    }
+    // Ambil filter client_code (opsional)
+    clientCode := strings.TrimSpace(c.QueryParam("client_code"))
 
     // Ambil filter waktu (opsional) dengan format RFC3339: 2006-01-02T15:04:05Z
     var startPtr, stopPtr *time.Time
@@ -184,7 +173,7 @@ func (h *SensorHandler) GetPersonel(c echo.Context) error {
                 Code:    http.StatusBadRequest,
                 Message: "invalid start time format, use RFC3339",
                 Data:    []listItem{},
-                Meta:    listResponseMeta{Count: 0, Page: page, Limit: limit},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
             })
         }
         startPtr = &st
@@ -197,38 +186,44 @@ func (h *SensorHandler) GetPersonel(c echo.Context) error {
                 Code:    http.StatusBadRequest,
                 Message: "invalid stop time format, use RFC3339",
                 Data:    []listItem{},
-                Meta:    listResponseMeta{Count: 0, Page: page, Limit: limit},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
             })
         }
         stopPtr = &sp
     }
 
-    items, err := h.uc.FetchPersonelSensors(c.Request().Context(), page, limit, startPtr, stopPtr)
-    if err != nil {
-        return c.JSON(http.StatusInternalServerError, listResponse{
-            Status:  "error",
-            Code:    http.StatusInternalServerError,
-            Message: err.Error(),
-            Data:    []listItem{},
-            Meta:    listResponseMeta{Count: 0, Page: page, Limit: limit},
-        })
-    }
+    // Set header untuk NDJSON streaming
+    c.Response().Header().Set(echo.HeaderContentType, "application/x-ndjson")
+    c.Response().WriteHeader(http.StatusOK)
+    enc := json.NewEncoder(c.Response().Writer)
 
-    // Map domain ke response
-    respItems := make([]listItem, 0, len(items))
-    for _, it := range items {
-        respItems = append(respItems, listItem{
+    // Stream baris demi baris
+    err := h.uc.StreamPersonelSensors(c.Request().Context(), startPtr, stopPtr, clientCode, func(it domain.SensorInput) error {
+        row := listItem{
             Timestamp:  it.Timestamp.UTC().Format(time.RFC3339),
             ClientCode: it.ClientCode,
             JSONData:   it.JSONData,
-        })
-    }
-
-    return c.JSON(http.StatusOK, listResponse{
-        Status:  "success",
-        Code:    http.StatusOK,
-        Message: "Sensor data list retrieved successfully",
-        Data:    respItems,
-        Meta:    listResponseMeta{Count: len(respItems), Page: page, Limit: limit},
+        }
+        if err := enc.Encode(row); err != nil {
+            return err
+        }
+        if f, ok := c.Response().Writer.(http.Flusher); ok {
+            f.Flush()
+        }
+        return nil
     })
+    if err != nil {
+        // Jika terjadi error sebelum ada data yang terkirim, kita kembalikan JSON error biasa.
+        // Jika error terjadi setelah sebagian data terkirim, koneksi akan ditutup.
+        if !c.Response().Committed {
+            return c.JSON(http.StatusInternalServerError, listResponse{
+                Status:  "error",
+                Code:    http.StatusInternalServerError,
+                Message: err.Error(),
+                Data:    []listItem{},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
+            })
+        }
+    }
+    return nil
 }
