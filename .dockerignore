@@ -1,0 +1,19 @@
+# Ignore files not needed in Docker build context
+.git/
+.qodo/
+.github/
+.idea/
+.vscode/
+tmp/
+bin/
+build/
+*.log
+node_modules/
+
+# Local env files (compose will inject env vars)
+.env.local
+.env.development
+.env.production
+
+# Exclude tests cache
+coverage/

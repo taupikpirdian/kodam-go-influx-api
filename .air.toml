@@ -1,0 +1,14 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+# Run the main application in /cmd/app
+cmd = "go run cmd/app/main.go"
+bin = "tmp/main"
+exclude_dir = ["vendor", "tmp", ".git", ".qodo"]
+include_ext = ["go"]
+delay = 1000
+stop_on_error = true
+
+[log]
+time = true
