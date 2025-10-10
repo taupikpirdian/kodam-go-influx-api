@@ -1,6 +1,6 @@
 package main
 
-// Data Archival to MinIO: Query InfluxDB (last 24h) -> CSV -> gzip -> upload
+// Data Backup: Query InfluxDB (last 24h) -> CSV -> gzip -> store (local/MinIO/both)
 
 import (
     "compress/gzip"
@@ -116,6 +116,36 @@ func gzipFile(inPath, outPath string) error {
     return nil
 }
 
+// saveToLocal stores gz file under LOCAL_BACKUP_DIR/YYYY/MM/DD/backup-{timestamp}.csv.gz
+func saveToLocal(srcGzPath, baseDir string, now time.Time, tsStr string) (string, error) {
+    // Ensure baseDir exists
+    if baseDir == "" {
+        baseDir = "./backups"
+    }
+    // Build nested dir and file name
+    localDir := filepath.Join(baseDir, fmt.Sprintf("%04d", now.Year()), fmt.Sprintf("%02d", int(now.Month())), fmt.Sprintf("%02d", now.Day()))
+    if err := os.MkdirAll(localDir, 0o755); err != nil {
+        return "", err
+    }
+    dstPath := filepath.Join(localDir, fmt.Sprintf("backup-%s.csv.gz", tsStr))
+
+    // Copy file
+    in, err := os.Open(srcGzPath)
+    if err != nil {
+        return "", err
+    }
+    defer in.Close()
+    out, err := os.Create(dstPath)
+    if err != nil {
+        return "", err
+    }
+    defer out.Close()
+    if _, err := io.Copy(out, in); err != nil {
+        return "", err
+    }
+    return dstPath, nil
+}
+
 // uploadToMinio uploads the file to MinIO and returns an accessible URL
 func uploadToMinio(ctx context.Context, endpoint, accessKey, secretKey, bucket, objectName, filePath string) (string, error) {
     // Parse endpoint to determine scheme and host
@@ -170,6 +200,17 @@ func runBackup(ctx context.Context) error {
     influxOrg := os.Getenv("INFLUX_ORG")
     influxBucket := os.Getenv("INFLUX_BUCKET")
 
+    // Destination mode
+    storageMode := strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_MODE")))
+    if storageMode == "" {
+        storageMode = "local" // default to local to avoid external deps by default
+    }
+    localBackupDir := strings.TrimSpace(os.Getenv("LOCAL_BACKUP_DIR"))
+    if localBackupDir == "" {
+        localBackupDir = "./backups"
+    }
+
+    // MinIO settings (only required if storageMode involves minio)
     minioEndpoint := os.Getenv("MINIO_ENDPOINT")
     minioAccessKey := os.Getenv("MINIO_ACCESS_KEY")
     minioSecretKey := os.Getenv("MINIO_SECRET_KEY")
@@ -179,8 +220,20 @@ func runBackup(ctx context.Context) error {
     if influxURL == "" || influxToken == "" || influxOrg == "" || influxBucket == "" {
         return fmt.Errorf("missing Influx env: INFLUX_URL/INFLUX_TOKEN/INFLUX_ORG/INFLUX_BUCKET")
     }
-    if minioEndpoint == "" || minioAccessKey == "" || minioSecretKey == "" || minioBucket == "" {
-        return fmt.Errorf("missing MinIO env: MINIO_ENDPOINT/MINIO_ACCESS_KEY/MINIO_SECRET_KEY/MINIO_BUCKET")
+    // Validate destination-specific env
+    switch storageMode {
+    case "local":
+        // no additional validation
+    case "minio":
+        if minioEndpoint == "" || minioAccessKey == "" || minioSecretKey == "" || minioBucket == "" {
+            return fmt.Errorf("missing MinIO env for storage mode 'minio': MINIO_ENDPOINT/MINIO_ACCESS_KEY/MINIO_SECRET_KEY/MINIO_BUCKET")
+        }
+    case "both":
+        if minioEndpoint == "" || minioAccessKey == "" || minioSecretKey == "" || minioBucket == "" {
+            return fmt.Errorf("missing MinIO env for storage mode 'both': MINIO_ENDPOINT/MINIO_ACCESS_KEY/MINIO_SECRET_KEY/MINIO_BUCKET")
+        }
+    default:
+        return fmt.Errorf("invalid STORAGE_MODE: %s (use local|minio|both)", storageMode)
     }
     if clientCode == "" {
         return fmt.Errorf("missing CLIENT_CODE env: set CLIENT_CODE to filter backup by client")
@@ -208,18 +261,42 @@ func runBackup(ctx context.Context) error {
         return fmt.Errorf("gzipFile error: %w", err)
     }
 
-    // Build MinIO object path: backups/YYYY/MM/DD/backup-{timestamp}.csv.gz
     now := time.Now().UTC()
-    objectName := fmt.Sprintf("backups/%04d/%02d/%02d/backup-%s.csv.gz", now.Year(), now.Month(), now.Day(), tsStr)
-
-    log.Printf("[backup] Uploading to MinIO bucket %s as %s...", minioBucket, objectName)
-    fileURL, err := uploadToMinio(ctx, minioEndpoint, minioAccessKey, minioSecretKey, minioBucket, objectName, gzPath)
-    if err != nil {
-        return fmt.Errorf("uploadToMinio error: %w", err)
+    // Local and/or MinIO persistence
+    switch storageMode {
+    case "local":
+        dst, err := saveToLocal(gzPath, localBackupDir, now, tsStr)
+        if err != nil {
+            return fmt.Errorf("saveToLocal error: %w", err)
+        }
+        log.Printf("[backup] Saved locally: %s", dst)
+        fmt.Println(dst)
+    case "minio":
+        objectName := fmt.Sprintf("backups/%04d/%02d/%02d/backup-%s.csv.gz", now.Year(), now.Month(), now.Day(), tsStr)
+        log.Printf("[backup] Uploading to MinIO bucket %s as %s...", minioBucket, objectName)
+        fileURL, err := uploadToMinio(ctx, minioEndpoint, minioAccessKey, minioSecretKey, minioBucket, objectName, gzPath)
+        if err != nil {
+            return fmt.Errorf("uploadToMinio error: %w", err)
+        }
+        log.Printf("[backup] Upload success: %s", fileURL)
+        fmt.Println(fileURL)
+    case "both":
+        // Local save
+        dst, err := saveToLocal(gzPath, localBackupDir, now, tsStr)
+        if err != nil {
+            return fmt.Errorf("saveToLocal error: %w", err)
+        }
+        log.Printf("[backup] Saved locally: %s", dst)
+        // MinIO upload
+        objectName := fmt.Sprintf("backups/%04d/%02d/%02d/backup-%s.csv.gz", now.Year(), now.Month(), now.Day(), tsStr)
+        log.Printf("[backup] Uploading to MinIO bucket %s as %s...", minioBucket, objectName)
+        fileURL, err := uploadToMinio(ctx, minioEndpoint, minioAccessKey, minioSecretKey, minioBucket, objectName, gzPath)
+        if err != nil {
+            return fmt.Errorf("uploadToMinio error: %w", err)
+        }
+        log.Printf("[backup] Upload success: %s", fileURL)
+        fmt.Println(fileURL)
     }
-
-    log.Printf("[backup] Upload success: %s", fileURL)
-    fmt.Println(fileURL)
     return nil
 }
 
