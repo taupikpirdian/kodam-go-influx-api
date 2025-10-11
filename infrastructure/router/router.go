@@ -18,10 +18,16 @@ func Register(e *echo.Echo, h *handlerPkg.HealthHandler, s *handlerPkg.SensorHan
     // e.Use(middleware.Logger())
     // e.Use(middleware.Recover())
 
+    // Apply CORS globally if enabled
+    cors := secmw.CORSMiddleware(cfg)
+    for _, m := range cors {
+        e.Use(m)
+    }
+
     e.GET("/health", h.Health)
 
     // Group /api dengan middleware keamanan
-    apiGroup := e.Group("/api", secmw.SecurityMiddleware(cfg)...)
+    apiGroup := e.Group("/api", secmw.SecurityMiddleware(cfg)...) 
 
     apiGroup.POST("/sensors/personel", s.PostPersonel)
     apiGroup.GET("/sensors/personel", s.GetPersonel)

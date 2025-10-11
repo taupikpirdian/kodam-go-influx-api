@@ -24,6 +24,14 @@ type Config struct {
     AllowedIPs          []string
     IPWhitelistEnabled  bool
     RateLimitPerMinute  int
+    // CORS
+    CORSEnabled         bool
+    CORSAllowedOrigins  []string
+    CORSAllowedMethods  []string
+    CORSAllowedHeaders  []string
+    CORSExposedHeaders  []string
+    CORSAllowCredentials bool
+    CORSMaxAge          int
 }
 
 // Load membaca konfigurasi dari environment variable.
@@ -70,6 +78,77 @@ func Load() (Config, error) {
         } else {
             cfg.RateLimitPerMinute = 30
         }
+    }
+
+    // CORS configuration
+    switch strings.ToLower(strings.TrimSpace(os.Getenv("CORS_ENABLED"))) {
+    case "1", "true", "yes", "on":
+        cfg.CORSEnabled = true
+    default:
+        cfg.CORSEnabled = false
+    }
+
+    // Allowed origins (comma separated). Use * to allow any.
+    if s := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS")); s != "" {
+        parts := strings.Split(s, ",")
+        for i := range parts {
+            parts[i] = strings.TrimSpace(parts[i])
+        }
+        cfg.CORSAllowedOrigins = parts
+    } else {
+        cfg.CORSAllowedOrigins = []string{"*"}
+    }
+
+    // Allowed methods
+    if s := strings.TrimSpace(os.Getenv("CORS_ALLOWED_METHODS")); s != "" {
+        parts := strings.Split(s, ",")
+        for i := range parts {
+            parts[i] = strings.TrimSpace(parts[i])
+        }
+        cfg.CORSAllowedMethods = parts
+    } else {
+        cfg.CORSAllowedMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+    }
+
+    // Allowed headers
+    if s := strings.TrimSpace(os.Getenv("CORS_ALLOWED_HEADERS")); s != "" {
+        parts := strings.Split(s, ",")
+        for i := range parts {
+            parts[i] = strings.TrimSpace(parts[i])
+        }
+        cfg.CORSAllowedHeaders = parts
+    } else {
+        cfg.CORSAllowedHeaders = []string{"Content-Type", "Authorization", "X-API-Key", "X-API-Secret"}
+    }
+
+    // Exposed headers
+    if s := strings.TrimSpace(os.Getenv("CORS_EXPOSE_HEADERS")); s != "" {
+        parts := strings.Split(s, ",")
+        for i := range parts {
+            parts[i] = strings.TrimSpace(parts[i])
+        }
+        cfg.CORSExposedHeaders = parts
+    } else {
+        cfg.CORSExposedHeaders = []string{}
+    }
+
+    // Allow credentials
+    switch strings.ToLower(strings.TrimSpace(os.Getenv("CORS_ALLOW_CREDENTIALS"))) {
+    case "1", "true", "yes", "on":
+        cfg.CORSAllowCredentials = true
+    default:
+        cfg.CORSAllowCredentials = false
+    }
+
+    // MaxAge
+    if s := strings.TrimSpace(os.Getenv("CORS_MAX_AGE")); s != "" {
+        if v, err := strconv.Atoi(s); err == nil && v >= 0 {
+            cfg.CORSMaxAge = v
+        } else {
+            cfg.CORSMaxAge = 300
+        }
+    } else {
+        cfg.CORSMaxAge = 300
     }
 
     // Validasi minimal

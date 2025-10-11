@@ -1,22 +1,10 @@
 services:
-  app:
+  go-app:
     container_name: go-app-sensors
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: dev # ← ini yang memilih stage "dev"
-      args:
-        GO_VERSION: "1.25"
     image: go-app-sensors:latest
-    working_dir: /src
-    volumes:
-      - .:/src
-      - go-cache:/go/pkg/mod
-    env_file:
-      - .env
+    build: .
     ports:
       - "3000:3000"
-    command: ["go", "run", "./cmd/app"] # jalankan langsung Go tanpa air
-
-volumes:
-  go-cache:
+    restart: unless-stopped
+    env_file:
+      - .env
