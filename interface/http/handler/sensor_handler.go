@@ -157,6 +157,51 @@ type listResponseMeta struct {
     Limit int `json:"limit"`
 }
 
+// PersonelData merepresentasikan struktur JSON yang tersimpan pada kolom json_data untuk sensor personel.
+type PersonelData struct {
+    Timestamp    int64 `json:"timestamp"`
+    Identity     struct {
+        ID           string `json:"id"`
+        NRP          string `json:"nrp"`
+        Name         string `json:"name"`
+        Rank         string `json:"rank"`
+        Unit         string `json:"unit"`
+        Battalion    string `json:"battalion"`
+        Squad        string `json:"squad"`
+        Avatar       string `json:"avatar"`
+        SerialNumber string `json:"serial_number"`
+    } `json:"identity"`
+    GPS          struct {
+        Latitude     float64 `json:"latitude"`
+        Longitude    float64 `json:"longitude"`
+        GPSTimestamp int64   `json:"gps_timestamp"`
+    } `json:"gps"`
+    RadioHealth  struct {
+        Heartrate           int   `json:"heartrate"`
+        HeartrateTimestamp  int64 `json:"heartrate_timestamp"`
+    } `json:"radio_health"`
+    Battery      struct {
+        Level int `json:"level"`
+    } `json:"battery"`
+}
+
+// personelListItem adalah item response untuk endpoint personel (streaming dan non-streaming)
+// yang mengembalikan json_data sebagai objek terstruktur, bukan string mentah.
+type personelListItem struct {
+    Timestamp  string       `json:"timestamp"`
+    ClientCode string       `json:"client_code"`
+    JSONData   PersonelData `json:"json_data"`
+}
+
+// personelListResponse adalah format response untuk endpoint personel non-streaming.
+type personelListResponse struct {
+    Status  string             `json:"status"`
+    Code    int                `json:"code"`
+    Message string             `json:"message"`
+    Data    []personelListItem `json:"data"`
+    Meta    listResponseMeta   `json:"meta"`
+}
+
 // GetPersonel mengembalikan daftar data sensor yang tersimpan.
 // Contoh curl:
 // curl --location 'http://localhost:3000/api/sensors/personel'
@@ -198,12 +243,16 @@ func (h *SensorHandler) GetPersonel(c echo.Context) error {
     c.Response().WriteHeader(http.StatusOK)
     enc := json.NewEncoder(c.Response().Writer)
 
-    // Stream baris demi baris
+    // Stream baris demi baris, mengubah json_data (string) menjadi objek PersonelData
     err := h.uc.StreamPersonelSensors(c.Request().Context(), startPtr, stopPtr, clientCode, func(it domain.SensorInput) error {
-        row := listItem{
+        var pd PersonelData
+        if err := json.Unmarshal([]byte(it.JSONData), &pd); err != nil {
+            return err
+        }
+        row := personelListItem{
             Timestamp:  it.Timestamp.UTC().Format(time.RFC3339),
             ClientCode: it.ClientCode,
-            JSONData:   it.JSONData,
+            JSONData:   pd,
         }
         if err := enc.Encode(row); err != nil {
             return err
@@ -284,7 +333,7 @@ func (h *SensorHandler) GetPersonelList(c echo.Context) error {
     offset := (page - 1) * limit
 
     // Kumpulkan hasil menggunakan streaming tapi ditampung sebagai list dengan offset/limit
-    var items []listItem
+    var items []personelListItem
     idx := 0
     err := h.uc.StreamPersonelSensors(c.Request().Context(), startPtr, stopPtr, clientCode, func(it domain.SensorInput) error {
         // Skip sampai offset
@@ -295,25 +344,29 @@ func (h *SensorHandler) GetPersonelList(c echo.Context) error {
         if len(items) >= limit {
             return nil
         }
-        items = append(items, listItem{
+        var pd PersonelData
+        if err := json.Unmarshal([]byte(it.JSONData), &pd); err != nil {
+            return err
+        }
+        items = append(items, personelListItem{
             Timestamp:  it.Timestamp.UTC().Format(time.RFC3339),
             ClientCode: it.ClientCode,
-            JSONData:   it.JSONData,
+            JSONData:   pd,
         })
         idx++
         return nil
     })
     if err != nil {
-        return c.JSON(http.StatusInternalServerError, listResponse{
+        return c.JSON(http.StatusInternalServerError, personelListResponse{
             Status:  "error",
             Code:    http.StatusInternalServerError,
             Message: err.Error(),
-            Data:    []listItem{},
+            Data:    []personelListItem{},
             Meta:    listResponseMeta{Count: 0, Page: page, Limit: limit},
         })
     }
 
-    return c.JSON(http.StatusOK, listResponse{
+    return c.JSON(http.StatusOK, personelListResponse{
         Status:  "success",
         Code:    http.StatusOK,
         Message: "OK",
