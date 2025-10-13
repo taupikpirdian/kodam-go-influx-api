@@ -31,14 +31,22 @@ func Register(e *echo.Echo, h *handlerPkg.HealthHandler, s *handlerPkg.SensorHan
 
     apiGroup.POST("/sensors/personel", s.PostPersonel)
     apiGroup.GET("/sensors/personel", s.GetPersonel)
+    // Versi non-streaming untuk personel
+    apiGroup.GET("/sensors/personel/list", s.GetPersonelList)
     // Endpoint Radar: sama seperti personel, bedanya measurement menggunakan "radar_sensor"
     apiGroup.POST("/sensors/radar", s.PostRadar)
     apiGroup.GET("/sensors/radar", s.GetRadar)
+    // Versi non-streaming untuk radar
+    apiGroup.GET("/sensors/radar/list", s.GetRadarList)
     // Endpoint DF: sama seperti personel, measurement menggunakan "df_sensor"
     apiGroup.POST("/sensors/df", s.PostDF)
     apiGroup.GET("/sensors/df", s.GetDF)
+    // Versi non-streaming untuk DF
+    apiGroup.GET("/sensors/df/list", s.GetDFList)
     // Endpoint ADSB: sama seperti personel, measurement menggunakan "adsb_sensor"
     apiGroup.POST("/sensors/adsb", s.PostADSB)
     apiGroup.GET("/sensors/adsb", s.GetADSB)
+    // Versi non-streaming untuk ADSB
+    apiGroup.GET("/sensors/adsb/list", s.GetADSBList)
     apiGroup.POST("/test/influx", s.TestStore)
 }

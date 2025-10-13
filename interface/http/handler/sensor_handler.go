@@ -6,6 +6,7 @@ package handler
 import (
     "encoding/json"
     "net/http"
+    "strconv"
     "strings"
     "time"
 
@@ -228,6 +229,99 @@ func (h *SensorHandler) GetPersonel(c echo.Context) error {
     return nil
 }
 
+// GetPersonelList mengembalikan daftar data dalam format JSON array (non-streaming).
+// Query params:
+// - client_code (opsional)
+// - start, stop (RFC3339, opsional)
+// - page (default 1), limit (default 50)
+// Contoh:
+// curl --location 'http://localhost:3000/api/sensors/personel/list?client_code=kodam&start=2025-01-01T00:00:00Z&stop=2025-12-31T23:59:59Z&page=1&limit=50'
+func (h *SensorHandler) GetPersonelList(c echo.Context) error {
+    clientCode := strings.TrimSpace(c.QueryParam("client_code"))
+
+    // Parse waktu opsional
+    var startPtr, stopPtr *time.Time
+    if startStr := c.QueryParam("start"); startStr != "" {
+        st, err := time.Parse(time.RFC3339, strings.TrimSpace(startStr))
+        if err != nil {
+            return c.JSON(http.StatusBadRequest, listResponse{
+                Status:  "error",
+                Code:    http.StatusBadRequest,
+                Message: "invalid start time format, use RFC3339",
+                Data:    []listItem{},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
+            })
+        }
+        startPtr = &st
+    }
+    if stopStr := c.QueryParam("stop"); stopStr != "" {
+        sp, err := time.Parse(time.RFC3339, strings.TrimSpace(stopStr))
+        if err != nil {
+            return c.JSON(http.StatusBadRequest, listResponse{
+                Status:  "error",
+                Code:    http.StatusBadRequest,
+                Message: "invalid stop time format, use RFC3339",
+                Data:    []listItem{},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
+            })
+        }
+        stopPtr = &sp
+    }
+
+    // Pagination params
+    page := 1
+    limit := 50
+    if v := strings.TrimSpace(c.QueryParam("page")); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            page = n
+        }
+    }
+    if v := strings.TrimSpace(c.QueryParam("limit")); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            limit = n
+        }
+    }
+    offset := (page - 1) * limit
+
+    // Kumpulkan hasil menggunakan streaming tapi ditampung sebagai list dengan offset/limit
+    var items []listItem
+    idx := 0
+    err := h.uc.StreamPersonelSensors(c.Request().Context(), startPtr, stopPtr, clientCode, func(it domain.SensorInput) error {
+        // Skip sampai offset
+        if idx < offset {
+            idx++
+            return nil
+        }
+        if len(items) >= limit {
+            return nil
+        }
+        items = append(items, listItem{
+            Timestamp:  it.Timestamp.UTC().Format(time.RFC3339),
+            ClientCode: it.ClientCode,
+            JSONData:   it.JSONData,
+        })
+        idx++
+        return nil
+    })
+    if err != nil {
+        return c.JSON(http.StatusInternalServerError, listResponse{
+            Status:  "error",
+            Code:    http.StatusInternalServerError,
+            Message: err.Error(),
+            Data:    []listItem{},
+            Meta:    listResponseMeta{Count: 0, Page: page, Limit: limit},
+        })
+    }
+
+    return c.JSON(http.StatusOK, listResponse{
+        Status:  "success",
+        Code:    http.StatusOK,
+        Message: "OK",
+        Data:    items,
+        Meta:    listResponseMeta{Count: len(items), Page: page, Limit: limit},
+    })
+}
+
 // PostRadar menyimpan data ke measurement radar_sensor.
 // Payload sama dengan personel.
 func (h *SensorHandler) PostRadar(c echo.Context) error {
@@ -343,6 +437,90 @@ func (h *SensorHandler) GetRadar(c echo.Context) error {
     return nil
 }
 
+// GetRadarList: versi non-streaming untuk radar
+// Query params: client_code, start, stop (RFC3339), page (default 1), limit (default 50)
+func (h *SensorHandler) GetRadarList(c echo.Context) error {
+    clientCode := strings.TrimSpace(c.QueryParam("client_code"))
+
+    var startPtr, stopPtr *time.Time
+    if startStr := c.QueryParam("start"); startStr != "" {
+        st, err := time.Parse(time.RFC3339, strings.TrimSpace(startStr))
+        if err != nil {
+            return c.JSON(http.StatusBadRequest, listResponse{
+                Status:  "error",
+                Code:    http.StatusBadRequest,
+                Message: "invalid start time format, use RFC3339",
+                Data:    []listItem{},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
+            })
+        }
+        startPtr = &st
+    }
+    if stopStr := c.QueryParam("stop"); stopStr != "" {
+        sp, err := time.Parse(time.RFC3339, strings.TrimSpace(stopStr))
+        if err != nil {
+            return c.JSON(http.StatusBadRequest, listResponse{
+                Status:  "error",
+                Code:    http.StatusBadRequest,
+                Message: "invalid stop time format, use RFC3339",
+                Data:    []listItem{},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
+            })
+        }
+        stopPtr = &sp
+    }
+
+    page := 1
+    limit := 50
+    if v := strings.TrimSpace(c.QueryParam("page")); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            page = n
+        }
+    }
+    if v := strings.TrimSpace(c.QueryParam("limit")); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            limit = n
+        }
+    }
+    offset := (page - 1) * limit
+
+    var items []listItem
+    idx := 0
+    err := h.uc.StreamRadarSensors(c.Request().Context(), startPtr, stopPtr, clientCode, func(it domain.SensorInput) error {
+        if idx < offset {
+            idx++
+            return nil
+        }
+        if len(items) >= limit {
+            return nil
+        }
+        items = append(items, listItem{
+            Timestamp:  it.Timestamp.UTC().Format(time.RFC3339),
+            ClientCode: it.ClientCode,
+            JSONData:   it.JSONData,
+        })
+        idx++
+        return nil
+    })
+    if err != nil {
+        return c.JSON(http.StatusInternalServerError, listResponse{
+            Status:  "error",
+            Code:    http.StatusInternalServerError,
+            Message: err.Error(),
+            Data:    []listItem{},
+            Meta:    listResponseMeta{Count: 0, Page: page, Limit: limit},
+        })
+    }
+
+    return c.JSON(http.StatusOK, listResponse{
+        Status:  "success",
+        Code:    http.StatusOK,
+        Message: "OK",
+        Data:    items,
+        Meta:    listResponseMeta{Count: len(items), Page: page, Limit: limit},
+    })
+}
+
 // PostDF menyimpan data ke measurement df_sensor.
 // Payload sama dengan personel.
 func (h *SensorHandler) PostDF(c echo.Context) error {
@@ -456,6 +634,90 @@ func (h *SensorHandler) GetDF(c echo.Context) error {
         }
     }
     return nil
+}
+
+// GetDFList: versi non-streaming untuk DF
+// Query params: client_code, start, stop (RFC3339), page (default 1), limit (default 50)
+func (h *SensorHandler) GetDFList(c echo.Context) error {
+    clientCode := strings.TrimSpace(c.QueryParam("client_code"))
+
+    var startPtr, stopPtr *time.Time
+    if startStr := c.QueryParam("start"); startStr != "" {
+        st, err := time.Parse(time.RFC3339, strings.TrimSpace(startStr))
+        if err != nil {
+            return c.JSON(http.StatusBadRequest, listResponse{
+                Status:  "error",
+                Code:    http.StatusBadRequest,
+                Message: "invalid start time format, use RFC3339",
+                Data:    []listItem{},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
+            })
+        }
+        startPtr = &st
+    }
+    if stopStr := c.QueryParam("stop"); stopStr != "" {
+        sp, err := time.Parse(time.RFC3339, strings.TrimSpace(stopStr))
+        if err != nil {
+            return c.JSON(http.StatusBadRequest, listResponse{
+                Status:  "error",
+                Code:    http.StatusBadRequest,
+                Message: "invalid stop time format, use RFC3339",
+                Data:    []listItem{},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
+            })
+        }
+        stopPtr = &sp
+    }
+
+    page := 1
+    limit := 50
+    if v := strings.TrimSpace(c.QueryParam("page")); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            page = n
+        }
+    }
+    if v := strings.TrimSpace(c.QueryParam("limit")); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            limit = n
+        }
+    }
+    offset := (page - 1) * limit
+
+    var items []listItem
+    idx := 0
+    err := h.uc.StreamDFSensors(c.Request().Context(), startPtr, stopPtr, clientCode, func(it domain.SensorInput) error {
+        if idx < offset {
+            idx++
+            return nil
+        }
+        if len(items) >= limit {
+            return nil
+        }
+        items = append(items, listItem{
+            Timestamp:  it.Timestamp.UTC().Format(time.RFC3339),
+            ClientCode: it.ClientCode,
+            JSONData:   it.JSONData,
+        })
+        idx++
+        return nil
+    })
+    if err != nil {
+        return c.JSON(http.StatusInternalServerError, listResponse{
+            Status:  "error",
+            Code:    http.StatusInternalServerError,
+            Message: err.Error(),
+            Data:    []listItem{},
+            Meta:    listResponseMeta{Count: 0, Page: page, Limit: limit},
+        })
+    }
+
+    return c.JSON(http.StatusOK, listResponse{
+        Status:  "success",
+        Code:    http.StatusOK,
+        Message: "OK",
+        Data:    items,
+        Meta:    listResponseMeta{Count: len(items), Page: page, Limit: limit},
+    })
 }
 
 // PostADSB menyimpan data ke measurement adsb_sensor.
@@ -574,4 +836,88 @@ func (h *SensorHandler) GetADSB(c echo.Context) error {
         }
     }
     return nil
+}
+
+// GetADSBList: versi non-streaming untuk ADSB
+// Query params: client_code, start, stop (RFC3339), page (default 1), limit (default 50)
+func (h *SensorHandler) GetADSBList(c echo.Context) error {
+    clientCode := strings.TrimSpace(c.QueryParam("client_code"))
+
+    var startPtr, stopPtr *time.Time
+    if startStr := c.QueryParam("start"); startStr != "" {
+        st, err := time.Parse(time.RFC3339, strings.TrimSpace(startStr))
+        if err != nil {
+            return c.JSON(http.StatusBadRequest, listResponse{
+                Status:  "error",
+                Code:    http.StatusBadRequest,
+                Message: "invalid start time format, use RFC3339",
+                Data:    []listItem{},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
+            })
+        }
+        startPtr = &st
+    }
+    if stopStr := c.QueryParam("stop"); stopStr != "" {
+        sp, err := time.Parse(time.RFC3339, strings.TrimSpace(stopStr))
+        if err != nil {
+            return c.JSON(http.StatusBadRequest, listResponse{
+                Status:  "error",
+                Code:    http.StatusBadRequest,
+                Message: "invalid stop time format, use RFC3339",
+                Data:    []listItem{},
+                Meta:    listResponseMeta{Count: 0, Page: 1, Limit: 0},
+            })
+        }
+        stopPtr = &sp
+    }
+
+    page := 1
+    limit := 50
+    if v := strings.TrimSpace(c.QueryParam("page")); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            page = n
+        }
+    }
+    if v := strings.TrimSpace(c.QueryParam("limit")); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            limit = n
+        }
+    }
+    offset := (page - 1) * limit
+
+    var items []listItem
+    idx := 0
+    err := h.uc.StreamADSBSensors(c.Request().Context(), startPtr, stopPtr, clientCode, func(it domain.SensorInput) error {
+        if idx < offset {
+            idx++
+            return nil
+        }
+        if len(items) >= limit {
+            return nil
+        }
+        items = append(items, listItem{
+            Timestamp:  it.Timestamp.UTC().Format(time.RFC3339),
+            ClientCode: it.ClientCode,
+            JSONData:   it.JSONData,
+        })
+        idx++
+        return nil
+    })
+    if err != nil {
+        return c.JSON(http.StatusInternalServerError, listResponse{
+            Status:  "error",
+            Code:    http.StatusInternalServerError,
+            Message: err.Error(),
+            Data:    []listItem{},
+            Meta:    listResponseMeta{Count: 0, Page: page, Limit: limit},
+        })
+    }
+
+    return c.JSON(http.StatusOK, listResponse{
+        Status:  "success",
+        Code:    http.StatusOK,
+        Message: "OK",
+        Data:    items,
+        Meta:    listResponseMeta{Count: len(items), Page: page, Limit: limit},
+    })
 }
