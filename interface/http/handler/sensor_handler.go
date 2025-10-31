@@ -157,32 +157,61 @@ type listResponseMeta struct {
     Limit int `json:"limit"`
 }
 
-// PersonelData merepresentasikan struktur JSON yang tersimpan pada kolom json_data untuk sensor personel.
+// PersonelData merepresentasikan struktur JSON terbaru yang tersimpan pada kolom json_data untuk sensor personel.
+// Contoh payload:
+// {
+//   "generated_at": "2025-10-31T12:31:33.994Z",
+//   "reason": "gps",
+//   "personnel": {
+//     "6": { ... },
+//     "7": { ... }
+//   },
+//   "gps": {
+//     "gps-device-001": { ... }
+//   }
+// }
 type PersonelData struct {
-    Timestamp    int64 `json:"timestamp"`
-    Identity     struct {
-        ID           string `json:"id"`
-        NRP          string `json:"nrp"`
-        Name         string `json:"name"`
-        Rank         string `json:"rank"`
-        Unit         string `json:"unit"`
-        Battalion    string `json:"battalion"`
-        Squad        string `json:"squad"`
-        Avatar       string `json:"avatar"`
+    GeneratedAt string `json:"generated_at"`
+    Reason      string `json:"reason"`
+    Personnel   map[string]struct {
+        Timestamp    int64  `json:"timestamp"`
         SerialNumber string `json:"serial_number"`
-    } `json:"identity"`
-    GPS          struct {
-        Latitude     float64 `json:"latitude"`
-        Longitude    float64 `json:"longitude"`
-        GPSTimestamp int64   `json:"gps_timestamp"`
+        Identity     struct {
+            ID        string `json:"id"`
+            NRP       string `json:"nrp"`
+            Name      string `json:"name"`
+            Rank      string `json:"rank"`
+            Unit      string `json:"unit"`
+            Battalion string `json:"battalion"`
+            Squad     string `json:"squad"`
+            Avatar    string `json:"avatar"`
+        } `json:"identity"`
+        GPS          struct {
+            Latitude     float64 `json:"latitude"`
+            Longitude    float64 `json:"longitude"`
+            GPSTimestamp int64   `json:"gps_timestamp"`
+        } `json:"gps"`
+        RadioHealth  struct {
+            Heartrate          int   `json:"heartrate"`
+            HeartrateTimestamp int64 `json:"heartrate_timestamp"`
+        } `json:"radio_health"`
+        Battery      struct {
+            Level int `json:"level"`
+        } `json:"battery"`
+        ReceivedAt   int64 `json:"_received_at"`
+    } `json:"personnel"`
+    GPS         map[string]struct {
+        MessageType        string  `json:"message_type"`
+        ReceivedAt         string  `json:"received_at"`
+        Latitude           float64 `json:"latitude"`
+        Longitude          float64 `json:"longitude"`
+        FixQuality         int     `json:"fix_quality"`
+        NumSatellites      int     `json:"num_satellites"`
+        Hdop               float64 `json:"hdop"`
+        AltitudeM          float64 `json:"altitude_m"`
+        GeoidSeparationM   float64 `json:"geoid_separation_m"`
+        HeadingDeg         float64 `json:"heading_deg"`
     } `json:"gps"`
-    RadioHealth  struct {
-        Heartrate           int   `json:"heartrate"`
-        HeartrateTimestamp  int64 `json:"heartrate_timestamp"`
-    } `json:"radio_health"`
-    Battery      struct {
-        Level int `json:"level"`
-    } `json:"battery"`
 }
 
 // personelListItem adalah item response untuk endpoint personel (streaming dan non-streaming)
