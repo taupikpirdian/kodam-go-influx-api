@@ -276,7 +276,10 @@ func (h *SensorHandler) GetPersonel(c echo.Context) error {
     err := h.uc.StreamPersonelSensors(c.Request().Context(), startPtr, stopPtr, clientCode, func(it domain.SensorInput) error {
         var pd PersonelData
         if err := json.Unmarshal([]byte(it.JSONData), &pd); err != nil {
-            return err
+            // Jangan matikan stream jika JSON tidak sesuai; log saja dan lanjut
+            c.Logger().Warnf("[stream-personel] invalid json_data at %s (client_code=%s): %v; raw=%s",
+                it.Timestamp.UTC().Format(time.RFC3339), it.ClientCode, err, it.JSONData)
+            return nil
         }
         row := personelListItem{
             Timestamp:  it.Timestamp.UTC().Format(time.RFC3339),
