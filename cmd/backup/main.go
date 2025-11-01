@@ -116,18 +116,20 @@ func gzipFile(inPath, outPath string) error {
     return nil
 }
 
-// saveToLocal stores gz file under LOCAL_BACKUP_DIR/YYYY/MM/DD/backup-{timestamp}.csv.gz
+// saveToLocal stores gz file under LOCAL_BACKUP_DIR/YYYY/MM/backup-YYYYMM.csv.gz
+// If called multiple times within the same year/month, the file will be replaced.
 func saveToLocal(srcGzPath, baseDir string, now time.Time, tsStr string) (string, error) {
     // Ensure baseDir exists
     if baseDir == "" {
         baseDir = "./backups"
     }
-    // Build nested dir and file name
-    localDir := filepath.Join(baseDir, fmt.Sprintf("%04d", now.Year()), fmt.Sprintf("%02d", int(now.Month())), fmt.Sprintf("%02d", now.Day()))
+    // Build nested dir and file name (monthly)
+    localDir := filepath.Join(baseDir, fmt.Sprintf("%04d", now.Year()), fmt.Sprintf("%02d", int(now.Month())))
     if err := os.MkdirAll(localDir, 0o755); err != nil {
         return "", err
     }
-    dstPath := filepath.Join(localDir, fmt.Sprintf("backup-%s.csv.gz", tsStr))
+    // Single file per month (replaces when exists)
+    dstPath := filepath.Join(localDir, fmt.Sprintf("backup-%04d%02d.csv.gz", now.Year(), int(now.Month())))
 
     // Copy file
     in, err := os.Open(srcGzPath)
@@ -272,7 +274,8 @@ func runBackup(ctx context.Context) error {
         log.Printf("[backup] Saved locally: %s", dst)
         fmt.Println(dst)
     case "minio":
-        objectName := fmt.Sprintf("backups/%04d/%02d/%02d/backup-%s.csv.gz", now.Year(), now.Month(), now.Day(), tsStr)
+        // Single file per month in MinIO as well
+        objectName := fmt.Sprintf("backups/%04d/%02d/backup-%04d%02d.csv.gz", now.Year(), now.Month(), now.Year(), now.Month())
         log.Printf("[backup] Uploading to MinIO bucket %s as %s...", minioBucket, objectName)
         fileURL, err := uploadToMinio(ctx, minioEndpoint, minioAccessKey, minioSecretKey, minioBucket, objectName, gzPath)
         if err != nil {
@@ -287,8 +290,8 @@ func runBackup(ctx context.Context) error {
             return fmt.Errorf("saveToLocal error: %w", err)
         }
         log.Printf("[backup] Saved locally: %s", dst)
-        // MinIO upload
-        objectName := fmt.Sprintf("backups/%04d/%02d/%02d/backup-%s.csv.gz", now.Year(), now.Month(), now.Day(), tsStr)
+        // MinIO upload (monthly)
+        objectName := fmt.Sprintf("backups/%04d/%02d/backup-%04d%02d.csv.gz", now.Year(), now.Month(), now.Year(), now.Month())
         log.Printf("[backup] Uploading to MinIO bucket %s as %s...", minioBucket, objectName)
         fileURL, err := uploadToMinio(ctx, minioEndpoint, minioAccessKey, minioSecretKey, minioBucket, objectName, gzPath)
         if err != nil {
