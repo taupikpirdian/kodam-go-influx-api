@@ -50,5 +50,11 @@ func Register(e *echo.Echo, h *handlerPkg.HealthHandler, s *handlerPkg.SensorHan
     apiGroup.GET("/sensors/adsb/list", s.GetADSBList)
     // Endpoint Available Dates untuk Personel
     apiGroup.GET("/sensors/available-data/personel", s.GetAvailableDatesPersonel)
+    // Endpoint Available Dates untuk Radar
+    apiGroup.GET("/sensors/available-data/radar", s.GetAvailableDatesRadar)
+    // Endpoint Available Dates untuk ADSB
+    apiGroup.GET("/sensors/available-data/adsb", s.GetAvailableDatesADSB)
+    // Endpoint Available Dates untuk DF
+    apiGroup.GET("/sensors/available-data/df", s.GetAvailableDatesDF)
     apiGroup.POST("/test/influx", s.TestStore)
 }

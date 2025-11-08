@@ -17,6 +17,9 @@ type SensorRepository interface {
     QueryPersonelSensor(ctx context.Context, page, limit int, start, stop *time.Time) ([]domain.SensorInput, error)
     StreamPersonelSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error
     GetAvailableDatesPersonel(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error)
+    GetAvailableDatesRadar(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error)
+    GetAvailableDatesADSB(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error)
+    GetAvailableDatesDF(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error)
     // Radar
     WriteRadarSensor(ctx context.Context, input domain.SensorInput) error
     StreamRadarSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error
@@ -122,4 +125,19 @@ func (u SensorUsecase) StreamADSBSensors(ctx context.Context, start, stop *time.
 // GetAvailableDatesPersonel mengambil daftar tanggal yang tersedia untuk data personel.
 func (u SensorUsecase) GetAvailableDatesPersonel(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error) {
     return u.repo.GetAvailableDatesPersonel(ctx, start, stop, clientCode)
+}
+
+// GetAvailableDatesRadar mengambil daftar tanggal yang tersedia untuk data radar.
+func (u SensorUsecase) GetAvailableDatesRadar(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error) {
+    return u.repo.GetAvailableDatesRadar(ctx, start, stop, clientCode)
+}
+
+// GetAvailableDatesADSB mengambil daftar tanggal yang tersedia untuk data ADSB.
+func (u SensorUsecase) GetAvailableDatesADSB(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error) {
+    return u.repo.GetAvailableDatesADSB(ctx, start, stop, clientCode)
+}
+
+// GetAvailableDatesDF mengambil daftar tanggal yang tersedia untuk data DF.
+func (u SensorUsecase) GetAvailableDatesDF(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error) {
+    return u.repo.GetAvailableDatesDF(ctx, start, stop, clientCode)
 }
