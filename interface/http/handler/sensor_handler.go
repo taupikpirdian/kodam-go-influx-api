@@ -1006,3 +1006,68 @@ func (h *SensorHandler) GetADSBList(c echo.Context) error {
         Meta:    listResponseMeta{Count: len(items), Page: page, Limit: limit},
     })
 }
+
+// availableDatesResponse adalah format response untuk endpoint available dates
+type availableDatesResponse struct {
+    Status  bool     `json:"status"`
+    Message string   `json:"message"`
+    Data    []string `json:"data"`
+}
+
+// GetAvailableDatesPersonel mengembalikan daftar tanggal yang tersedia untuk data personel.
+// Query params:
+// - date (YYYY-MM-DD, required): tanggal untuk mencari data dalam bulan tersebut
+// - client_code (required): kode client
+// Contoh curl:
+// curl --location 'http://localhost:3000/api/sensors/available-data/personel?date=2025-11-01&client_code=kodam'
+func (h *SensorHandler) GetAvailableDatesPersonel(c echo.Context) error {
+    dateStr := strings.TrimSpace(c.QueryParam("date"))
+    clientCode := strings.TrimSpace(c.QueryParam("client_code"))
+
+    if dateStr == "" {
+        return c.JSON(http.StatusBadRequest, availableDatesResponse{
+            Status:  false,
+            Message: "date parameter is required (format: YYYY-MM-DD)",
+            Data:    []string{},
+        })
+    }
+
+    if clientCode == "" {
+        return c.JSON(http.StatusBadRequest, availableDatesResponse{
+            Status:  false,
+            Message: "client_code parameter is required",
+            Data:    []string{},
+        })
+    }
+
+    // Parse date untuk mendapatkan awal dan akhir bulan
+    date, err := time.Parse("2006-01-02", dateStr)
+    if err != nil {
+        return c.JSON(http.StatusBadRequest, availableDatesResponse{
+            Status:  false,
+            Message: "invalid date format, use YYYY-MM-DD",
+            Data:    []string{},
+        })
+    }
+
+    // Set start ke awal bulan dan stop ke akhir bulan
+    year := date.Year()
+    month := date.Month()
+    start := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
+    end := time.Date(year, month+1, 1, 0, 0, 0, -1, time.UTC) // akhir bulan saat ini
+
+    dates, err := h.uc.GetAvailableDatesPersonel(c.Request().Context(), &start, &end, clientCode)
+    if err != nil {
+        return c.JSON(http.StatusInternalServerError, availableDatesResponse{
+            Status:  false,
+            Message: err.Error(),
+            Data:    []string{},
+        })
+    }
+
+    return c.JSON(http.StatusOK, availableDatesResponse{
+        Status:  true,
+        Message: "success",
+        Data:    dates,
+    })
+}

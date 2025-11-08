@@ -48,5 +48,7 @@ func Register(e *echo.Echo, h *handlerPkg.HealthHandler, s *handlerPkg.SensorHan
     apiGroup.GET("/sensors/adsb", s.GetADSB)
     // Versi non-streaming untuk ADSB
     apiGroup.GET("/sensors/adsb/list", s.GetADSBList)
+    // Endpoint Available Dates untuk Personel
+    apiGroup.GET("/sensors/available-data/personel", s.GetAvailableDatesPersonel)
     apiGroup.POST("/test/influx", s.TestStore)
 }

@@ -16,6 +16,7 @@ type SensorRepository interface {
     WritePersonelSensor(ctx context.Context, input domain.SensorInput) error
     QueryPersonelSensor(ctx context.Context, page, limit int, start, stop *time.Time) ([]domain.SensorInput, error)
     StreamPersonelSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error
+    GetAvailableDatesPersonel(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error)
     // Radar
     WriteRadarSensor(ctx context.Context, input domain.SensorInput) error
     StreamRadarSensor(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error
@@ -116,4 +117,9 @@ func (u SensorUsecase) StoreADSBSensor(ctx context.Context, input domain.SensorI
 // StreamADSBSensors mem-forward streaming dari repository ADSB.
 func (u SensorUsecase) StreamADSBSensors(ctx context.Context, start, stop *time.Time, clientCode string, onRow func(domain.SensorInput) error) error {
     return u.repo.StreamADSBSensor(ctx, start, stop, clientCode, onRow)
+}
+
+// GetAvailableDatesPersonel mengambil daftar tanggal yang tersedia untuk data personel.
+func (u SensorUsecase) GetAvailableDatesPersonel(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error) {
+    return u.repo.GetAvailableDatesPersonel(ctx, start, stop, clientCode)
 }
