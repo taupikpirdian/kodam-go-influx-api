@@ -472,7 +472,12 @@ func (r *InfluxRepository) GetAvailableDatesPersonel(ctx context.Context, start,
         |> map(fn: (r) => ({
             _time: r._time,
             _value: r._value,
-            _date: date(t: r._time)
+            _date: string(t: r._time)
+        }))
+        |> map(fn: (r) => ({
+            _time: r._time,
+            _value: r._value,
+            _date: substringString(t: r._date, start: 0, stop: 10)
         }))
         |> group(columns: ["_date"])
         |> distinct(column: "_date")
@@ -532,7 +537,12 @@ func (r *InfluxRepository) GetAvailableDatesRadar(ctx context.Context, start, st
         |> map(fn: (r) => ({
             _time: r._time,
             _value: r._value,
-            _date: date(t: r._time)
+            _date: string(t: r._time)
+        }))
+        |> map(fn: (r) => ({
+            _time: r._time,
+            _value: r._value,
+            _date: substringString(t: r._date, start: 0, stop: 10)
         }))
         |> group(columns: ["_date"])
         |> distinct(column: "_date")
@@ -592,7 +602,12 @@ func (r *InfluxRepository) GetAvailableDatesDF(ctx context.Context, start, stop 
         |> map(fn: (r) => ({
             _time: r._time,
             _value: r._value,
-            _date: date(t: r._time)
+            _date: string(t: r._time)
+        }))
+        |> map(fn: (r) => ({
+            _time: r._time,
+            _value: r._value,
+            _date: substringString(t: r._date, start: 0, stop: 10)
         }))
         |> group(columns: ["_date"])
         |> distinct(column: "_date")
@@ -652,7 +667,12 @@ func (r *InfluxRepository) GetAvailableDatesADSB(ctx context.Context, start, sto
         |> map(fn: (r) => ({
             _time: r._time,
             _value: r._value,
-            _date: date(t: r._time)
+            _date: string(t: r._time)
+        }))
+        |> map(fn: (r) => ({
+            _time: r._time,
+            _value: r._value,
+            _date: substringString(t: r._date, start: 0, stop: 10)
         }))
         |> group(columns: ["_date"])
         |> distinct(column: "_date")
