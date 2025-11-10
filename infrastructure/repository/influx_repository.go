@@ -445,58 +445,68 @@ func (r *InfluxRepository) StreamRadarSensor(ctx context.Context, start, stop *t
 
 // GetAvailableDatesPersonel mengambil daftar tanggal yang tersedia untuk data personel sensor.
 // Menggunakan Flux query untuk mendapatkan tanggal-tanggal unik dari measurement personel_sensor.
-func (r *InfluxRepository) GetAvailableDatesPersonel(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error) {
-	// Bangun range clause
+func (r *InfluxRepository) GetAvailableDatesPersonel(
+	ctx context.Context,
+	start, stop *time.Time,
+	clientCode string,
+) ([]string, error) {
+
+	// Build Flux range clause
 	var rangeClause string
+	const maxTime = "2100-01-01T00:00:00Z"
+
 	switch {
 	case start != nil && stop != nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: %s), stop: time(v: %s))", start.UTC().Format(time.RFC3339), stop.UTC().Format(time.RFC3339))
-	case start != nil && stop == nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: %s), stop: time(v: 2100-01-01T00:00:00Z))", start.UTC().Format(time.RFC3339))
-	case start == nil && stop != nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: 0), stop: time(v: %s))", stop.UTC().Format(time.RFC3339))
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+			start.UTC().Format(time.RFC3339),
+			stop.UTC().Format(time.RFC3339),
+		)
+	case start != nil:
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+			start.UTC().Format(time.RFC3339), maxTime,
+		)
+	case stop != nil:
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "%s"))`,
+			stop.UTC().Format(time.RFC3339),
+		)
 	default:
-		rangeClause = "|> range(start: time(v: 0), stop: time(v: 2100-01-01T00:00:00Z))"
+		rangeClause = `|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "` + maxTime + `"))`
 	}
 
-	var clientFilterStep string
+	// Optional client_code filter
+	clientFilter := ""
 	if clientCode != "" {
-		clientFilterStep = fmt.Sprintf("\n        |> filter(fn: (r) => r.client_code == %q)", clientCode)
+		clientFilter = fmt.Sprintf(`|> filter(fn: (r) => r.client_code == "%s")`, clientCode)
 	}
 
-	// Flux query untuk mendapatkan tanggal unik dari personel_sensor
-	flux := fmt.Sprintf(`from(bucket: %q)
-        %s
-        |> filter(fn: (r) => r._measurement == "personel_sensor")
-        |> filter(fn: (r) => r._field == "json_data")%s
-        |> map(fn: (r) => ({
-            _time: r._time,
-            _value: r._value,
-            _date: string(t: r._time)
-        }))
-        |> map(fn: (r) => ({
-            _time: r._time,
-            _value: r._value,
-            _date: substringString(t: r._date, start: 0, stop: 10)
-        }))
-        |> group(columns: ["_date"])
-        |> distinct(column: "_date")
-        |> keep(columns: ["_date"])
-        |> sort(columns: ["_date"], desc: false)`, r.bucket, rangeClause, clientFilterStep)
+	// ✅ Flux query FIXED (tanpa substring)
+	flux := fmt.Sprintf(`
+	import "date"
 
-	q := r.client.QueryAPI(r.org)
-	res, err := q.Query(ctx, flux)
+	from(bucket: "%s")
+		%s
+		|> filter(fn: (r) => r._measurement == "personel_sensor")
+		|> filter(fn: (r) => r._field == "json_data")
+		%s
+		|> map(fn: (r) => ({
+			_date: string(v: date.truncate(t: r._time, unit: 1d))
+		}))
+		|> distinct(column: "_date")
+		|> sort(columns: ["_date"])
+	`, r.bucket, rangeClause, clientFilter)
+
+	// Exec query
+	res, err := r.client.QueryAPI(r.org).Query(ctx, flux)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query influx failed: %w", err)
 	}
 
+	// Parsing result
 	var dates []string
 	for res.Next() {
-		rec := res.Record()
-		if dateValue := rec.Value(); dateValue != nil {
-			// Convert date to string format YYYY-MM-DD
-			if t, ok := dateValue.(time.Time); ok {
-				dates = append(dates, t.Format("2006-01-02"))
+		if v, ok := res.Record().Value().(string); ok {
+			if len(v) >= 10 {
+				dates = append(dates, v[:10]) // ambil "YYYY-MM-DD"
 			}
 		}
 	}
@@ -510,58 +520,68 @@ func (r *InfluxRepository) GetAvailableDatesPersonel(ctx context.Context, start,
 
 // GetAvailableDatesRadar mengambil daftar tanggal yang tersedia untuk data radar sensor.
 // Menggunakan Flux query untuk mendapatkan tanggal-tanggal unik dari measurement radar_sensor.
-func (r *InfluxRepository) GetAvailableDatesRadar(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error) {
-	// Bangun range clause
+func (r *InfluxRepository) GetAvailableDatesRadar(
+	ctx context.Context,
+	start, stop *time.Time,
+	clientCode string,
+) ([]string, error) {
+
+	// Build Flux range clause
 	var rangeClause string
+	const maxTime = "2100-01-01T00:00:00Z"
+
 	switch {
 	case start != nil && stop != nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: %s), stop: time(v: %s))", start.UTC().Format(time.RFC3339), stop.UTC().Format(time.RFC3339))
-	case start != nil && stop == nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: %s), stop: time(v: 2100-01-01T00:00:00Z))", start.UTC().Format(time.RFC3339))
-	case start == nil && stop != nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: 0), stop: time(v: %s))", stop.UTC().Format(time.RFC3339))
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+			start.UTC().Format(time.RFC3339),
+			stop.UTC().Format(time.RFC3339),
+		)
+	case start != nil:
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+			start.UTC().Format(time.RFC3339), maxTime,
+		)
+	case stop != nil:
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "%s"))`,
+			stop.UTC().Format(time.RFC3339),
+		)
 	default:
-		rangeClause = "|> range(start: time(v: 0), stop: time(v: 2100-01-01T00:00:00Z))"
+		rangeClause = `|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "` + maxTime + `"))`
 	}
 
-	var clientFilterStep string
+	// Optional client_code filter
+	clientFilter := ""
 	if clientCode != "" {
-		clientFilterStep = fmt.Sprintf("\n        |> filter(fn: (r) => r.client_code == %q)", clientCode)
+		clientFilter = fmt.Sprintf(`|> filter(fn: (r) => r.client_code == "%s")`, clientCode)
 	}
 
-	// Flux query untuk mendapatkan tanggal unik dari radar_sensor
-	flux := fmt.Sprintf(`from(bucket: %q)
-        %s
-        |> filter(fn: (r) => r._measurement == "radar_sensor")
-        |> filter(fn: (r) => r._field == "json_data")%s
-        |> map(fn: (r) => ({
-            _time: r._time,
-            _value: r._value,
-            _date: string(t: r._time)
-        }))
-        |> map(fn: (r) => ({
-            _time: r._time,
-            _value: r._value,
-            _date: substringString(t: r._date, start: 0, stop: 10)
-        }))
-        |> group(columns: ["_date"])
-        |> distinct(column: "_date")
-        |> keep(columns: ["_date"])
-        |> sort(columns: ["_date"], desc: false)`, r.bucket, rangeClause, clientFilterStep)
+	// ✅ Flux query FIXED (tanpa substring)
+	flux := fmt.Sprintf(`
+	import "date"
 
-	q := r.client.QueryAPI(r.org)
-	res, err := q.Query(ctx, flux)
+	from(bucket: "%s")
+		%s
+		|> filter(fn: (r) => r._measurement == "radar_sensor")
+		|> filter(fn: (r) => r._field == "json_data")
+		%s
+		|> map(fn: (r) => ({
+			_date: string(v: date.truncate(t: r._time, unit: 1d))
+		}))
+		|> distinct(column: "_date")
+		|> sort(columns: ["_date"])
+	`, r.bucket, rangeClause, clientFilter)
+
+	// Exec query
+	res, err := r.client.QueryAPI(r.org).Query(ctx, flux)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query influx failed: %w", err)
 	}
 
+	// Parsing result
 	var dates []string
 	for res.Next() {
-		rec := res.Record()
-		if dateValue := rec.Value(); dateValue != nil {
-			// Convert date to string format YYYY-MM-DD
-			if t, ok := dateValue.(time.Time); ok {
-				dates = append(dates, t.Format("2006-01-02"))
+		if v, ok := res.Record().Value().(string); ok {
+			if len(v) >= 10 {
+				dates = append(dates, v[:10]) // ambil "YYYY-MM-DD"
 			}
 		}
 	}
@@ -575,58 +595,68 @@ func (r *InfluxRepository) GetAvailableDatesRadar(ctx context.Context, start, st
 
 // GetAvailableDatesDF mengambil daftar tanggal yang tersedia untuk data DF sensor.
 // Menggunakan Flux query untuk mendapatkan tanggal-tanggal unik dari measurement df_sensor.
-func (r *InfluxRepository) GetAvailableDatesDF(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error) {
-	// Bangun range clause
+func (r *InfluxRepository) GetAvailableDatesDF(
+	ctx context.Context,
+	start, stop *time.Time,
+	clientCode string,
+) ([]string, error) {
+
+	// Build Flux range clause
 	var rangeClause string
+	const maxTime = "2100-01-01T00:00:00Z"
+
 	switch {
 	case start != nil && stop != nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: %s), stop: time(v: %s))", start.UTC().Format(time.RFC3339), stop.UTC().Format(time.RFC3339))
-	case start != nil && stop == nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: %s), stop: time(v: 2100-01-01T00:00:00Z))", start.UTC().Format(time.RFC3339))
-	case start == nil && stop != nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: 0), stop: time(v: %s))", stop.UTC().Format(time.RFC3339))
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+			start.UTC().Format(time.RFC3339),
+			stop.UTC().Format(time.RFC3339),
+		)
+	case start != nil:
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+			start.UTC().Format(time.RFC3339), maxTime,
+		)
+	case stop != nil:
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "%s"))`,
+			stop.UTC().Format(time.RFC3339),
+		)
 	default:
-		rangeClause = "|> range(start: time(v: 0), stop: time(v: 2100-01-01T00:00:00Z))"
+		rangeClause = `|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "` + maxTime + `"))`
 	}
 
-	var clientFilterStep string
+	// Optional client_code filter
+	clientFilter := ""
 	if clientCode != "" {
-		clientFilterStep = fmt.Sprintf("\n        |> filter(fn: (r) => r.client_code == %q)", clientCode)
+		clientFilter = fmt.Sprintf(`|> filter(fn: (r) => r.client_code == "%s")`, clientCode)
 	}
 
-	// Flux query untuk mendapatkan tanggal unik dari df_sensor
-	flux := fmt.Sprintf(`from(bucket: %q)
-        %s
-        |> filter(fn: (r) => r._measurement == "df_sensor")
-        |> filter(fn: (r) => r._field == "json_data")%s
-        |> map(fn: (r) => ({
-            _time: r._time,
-            _value: r._value,
-            _date: string(t: r._time)
-        }))
-        |> map(fn: (r) => ({
-            _time: r._time,
-            _value: r._value,
-            _date: substringString(t: r._date, start: 0, stop: 10)
-        }))
-        |> group(columns: ["_date"])
-        |> distinct(column: "_date")
-        |> keep(columns: ["_date"])
-        |> sort(columns: ["_date"], desc: false)`, r.bucket, rangeClause, clientFilterStep)
+	// ✅ Flux query FIXED (tanpa substring)
+	flux := fmt.Sprintf(`
+	import "date"
 
-	q := r.client.QueryAPI(r.org)
-	res, err := q.Query(ctx, flux)
+	from(bucket: "%s")
+		%s
+		|> filter(fn: (r) => r._measurement == "df_sensor")
+		|> filter(fn: (r) => r._field == "json_data")
+		%s
+		|> map(fn: (r) => ({
+			_date: string(v: date.truncate(t: r._time, unit: 1d))
+		}))
+		|> distinct(column: "_date")
+		|> sort(columns: ["_date"])
+	`, r.bucket, rangeClause, clientFilter)
+
+	// Exec query
+	res, err := r.client.QueryAPI(r.org).Query(ctx, flux)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query influx failed: %w", err)
 	}
 
+	// Parsing result
 	var dates []string
 	for res.Next() {
-		rec := res.Record()
-		if dateValue := rec.Value(); dateValue != nil {
-			// Convert date to string format YYYY-MM-DD
-			if t, ok := dateValue.(time.Time); ok {
-				dates = append(dates, t.Format("2006-01-02"))
+		if v, ok := res.Record().Value().(string); ok {
+			if len(v) >= 10 {
+				dates = append(dates, v[:10]) // ambil "YYYY-MM-DD"
 			}
 		}
 	}
@@ -640,58 +670,68 @@ func (r *InfluxRepository) GetAvailableDatesDF(ctx context.Context, start, stop 
 
 // GetAvailableDatesADSB mengambil daftar tanggal yang tersedia untuk data ADSB sensor.
 // Menggunakan Flux query untuk mendapatkan tanggal-tanggal unik dari measurement adsb_sensor.
-func (r *InfluxRepository) GetAvailableDatesADSB(ctx context.Context, start, stop *time.Time, clientCode string) ([]string, error) {
-	// Bangun range clause
+func (r *InfluxRepository) GetAvailableDatesADSB(
+	ctx context.Context,
+	start, stop *time.Time,
+	clientCode string,
+) ([]string, error) {
+
+	// Build Flux range clause
 	var rangeClause string
+	const maxTime = "2100-01-01T00:00:00Z"
+
 	switch {
 	case start != nil && stop != nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: %s), stop: time(v: %s))", start.UTC().Format(time.RFC3339), stop.UTC().Format(time.RFC3339))
-	case start != nil && stop == nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: %s), stop: time(v: 2100-01-01T00:00:00Z))", start.UTC().Format(time.RFC3339))
-	case start == nil && stop != nil:
-		rangeClause = fmt.Sprintf("|> range(start: time(v: 0), stop: time(v: %s))", stop.UTC().Format(time.RFC3339))
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+			start.UTC().Format(time.RFC3339),
+			stop.UTC().Format(time.RFC3339),
+		)
+	case start != nil:
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+			start.UTC().Format(time.RFC3339), maxTime,
+		)
+	case stop != nil:
+		rangeClause = fmt.Sprintf(`|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "%s"))`,
+			stop.UTC().Format(time.RFC3339),
+		)
 	default:
-		rangeClause = "|> range(start: time(v: 0), stop: time(v: 2100-01-01T00:00:00Z))"
+		rangeClause = `|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "` + maxTime + `"))`
 	}
 
-	var clientFilterStep string
+	// Optional client_code filter
+	clientFilter := ""
 	if clientCode != "" {
-		clientFilterStep = fmt.Sprintf("\n        |> filter(fn: (r) => r.client_code == %q)", clientCode)
+		clientFilter = fmt.Sprintf(`|> filter(fn: (r) => r.client_code == "%s")`, clientCode)
 	}
 
-	// Flux query untuk mendapatkan tanggal unik dari adsb_sensor
-	flux := fmt.Sprintf(`from(bucket: %q)
-        %s
-        |> filter(fn: (r) => r._measurement == "adsb_sensor")
-        |> filter(fn: (r) => r._field == "json_data")%s
-        |> map(fn: (r) => ({
-            _time: r._time,
-            _value: r._value,
-            _date: string(t: r._time)
-        }))
-        |> map(fn: (r) => ({
-            _time: r._time,
-            _value: r._value,
-            _date: substringString(t: r._date, start: 0, stop: 10)
-        }))
-        |> group(columns: ["_date"])
-        |> distinct(column: "_date")
-        |> keep(columns: ["_date"])
-        |> sort(columns: ["_date"], desc: false)`, r.bucket, rangeClause, clientFilterStep)
+	// ✅ Flux query FIXED (tanpa substring)
+	flux := fmt.Sprintf(`
+	import "date"
 
-	q := r.client.QueryAPI(r.org)
-	res, err := q.Query(ctx, flux)
+	from(bucket: "%s")
+		%s
+		|> filter(fn: (r) => r._measurement == "adsb_sensor")
+		|> filter(fn: (r) => r._field == "json_data")
+		%s
+		|> map(fn: (r) => ({
+			_date: string(v: date.truncate(t: r._time, unit: 1d))
+		}))
+		|> distinct(column: "_date")
+		|> sort(columns: ["_date"])
+	`, r.bucket, rangeClause, clientFilter)
+
+	// Exec query
+	res, err := r.client.QueryAPI(r.org).Query(ctx, flux)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query influx failed: %w", err)
 	}
 
+	// Parsing result
 	var dates []string
 	for res.Next() {
-		rec := res.Record()
-		if dateValue := rec.Value(); dateValue != nil {
-			// Convert date to string format YYYY-MM-DD
-			if t, ok := dateValue.(time.Time); ok {
-				dates = append(dates, t.Format("2006-01-02"))
+		if v, ok := res.Record().Value().(string); ok {
+			if len(v) >= 10 {
+				dates = append(dates, v[:10]) // ambil "YYYY-MM-DD"
 			}
 		}
 	}
