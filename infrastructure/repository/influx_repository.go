@@ -446,9 +446,9 @@ func (r *InfluxRepository) StreamRadarSensor(ctx context.Context, start, stop *t
 // GetAvailableDatesPersonel mengambil daftar tanggal yang tersedia untuk data personel sensor.
 // Menggunakan Flux query untuk mendapatkan tanggal-tanggal unik dari measurement personel_sensor.
 func (r *InfluxRepository) GetAvailableDatesPersonel(
-	ctx context.Context,
-	start, stop *time.Time,
-	clientCode string,
+    ctx context.Context,
+    start, stop *time.Time,
+    clientCode string,
 ) ([]string, error) {
 
 	// Build Flux range clause
@@ -518,12 +518,78 @@ func (r *InfluxRepository) GetAvailableDatesPersonel(
 	return dates, nil
 }
 
+// GetAvailableDatesPersonelV2 mengambil daftar tanggal (YYYY-MM-DD) dalam 1 bulan terakhir
+// dengan pendekatan lebih cepat: membatasi range ke 30 hari dan agregasi harian via aggregateWindow.
+// Metode ini mengabaikan parameter start/stop dan selalu memakai last 30d.
+func (r *InfluxRepository) GetAvailableDatesPersonelV2(
+    ctx context.Context,
+    start, stop *time.Time,
+    clientCode string,
+    ) ([]string, error) {
+
+    // Build Flux range clause: gunakan start/stop jika tersedia, default ke -30d jika keduanya kosong
+    var rangeClause string
+    const maxTime = "2100-01-01T00:00:00Z"
+    switch {
+    case start != nil && stop != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+            start.UTC().Format(time.RFC3339),
+            stop.UTC().Format(time.RFC3339),
+        )
+    case start != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+            start.UTC().Format(time.RFC3339), maxTime,
+        )
+    case stop != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "%s"))`,
+            stop.UTC().Format(time.RFC3339),
+        )
+    default:
+        // Default optimasi: batasi ke 30 hari terakhir
+        rangeClause = `|> range(start: -30d)`
+    }
+
+    // Optional client_code filter
+    clientFilter := ""
+    if clientCode != "" {
+        clientFilter = fmt.Sprintf(`|> filter(fn: (r) => r.client_code == "%s")`, clientCode)
+    }
+
+    // Flux dengan aggregateWindow harian dan range -30d
+    flux := fmt.Sprintf(`
+from(bucket: "%s")
+    %s
+    |> filter(fn: (r) => r._measurement == "personel_sensor")
+    |> filter(fn: (r) => r._field == "json_data")
+    %s
+    |> aggregateWindow(every: 1d, fn: count, createEmpty: false)
+    |> filter(fn: (r) => r._value > 0)
+    |> keep(columns: ["_time"]) 
+    |> sort(columns: ["_time"])`, r.bucket, rangeClause, clientFilter)
+
+    res, err := r.client.QueryAPI(r.org).Query(ctx, flux)
+    if err != nil {
+        return nil, fmt.Errorf("query influx failed: %w", err)
+    }
+
+    var dates []string
+    for res.Next() {
+        // Gunakan timestamp window sebagai tanggal
+        t := res.Record().Time().UTC()
+        dates = append(dates, t.Format("2006-01-02"))
+    }
+    if res.Err() != nil {
+        return nil, res.Err()
+    }
+    return dates, nil
+}
+
 // GetAvailableDatesRadar mengambil daftar tanggal yang tersedia untuk data radar sensor.
 // Menggunakan Flux query untuk mendapatkan tanggal-tanggal unik dari measurement radar_sensor.
 func (r *InfluxRepository) GetAvailableDatesRadar(
-	ctx context.Context,
-	start, stop *time.Time,
-	clientCode string,
+    ctx context.Context,
+    start, stop *time.Time,
+    clientCode string,
 ) ([]string, error) {
 
 	// Build Flux range clause
@@ -593,12 +659,75 @@ func (r *InfluxRepository) GetAvailableDatesRadar(
 	return dates, nil
 }
 
+// GetAvailableDatesRadarV2 mengambil daftar tanggal (YYYY-MM-DD) dengan optimasi
+// menggunakan aggregateWindow harian dan range dinamis (default -30d bila start/stop kosong).
+func (r *InfluxRepository) GetAvailableDatesRadarV2(
+    ctx context.Context,
+    start, stop *time.Time,
+    clientCode string,
+) ([]string, error) {
+
+    // Build Flux range clause: gunakan start/stop jika tersedia, default ke -30d jika keduanya kosong
+    var rangeClause string
+    const maxTime = "2100-01-01T00:00:00Z"
+    switch {
+    case start != nil && stop != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+            start.UTC().Format(time.RFC3339),
+            stop.UTC().Format(time.RFC3339),
+        )
+    case start != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+            start.UTC().Format(time.RFC3339), maxTime,
+        )
+    case stop != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "%s"))`,
+            stop.UTC().Format(time.RFC3339),
+        )
+    default:
+        rangeClause = `|> range(start: -30d)`
+    }
+
+    // Optional client_code filter
+    clientFilter := ""
+    if clientCode != "" {
+        clientFilter = fmt.Sprintf(`|> filter(fn: (r) => r.client_code == "%s")`, clientCode)
+    }
+
+    // Flux dengan aggregateWindow harian
+    flux := fmt.Sprintf(`
+from(bucket: "%s")
+    %s
+    |> filter(fn: (r) => r._measurement == "radar_sensor")
+    |> filter(fn: (r) => r._field == "json_data")
+    %s
+    |> aggregateWindow(every: 1d, fn: count, createEmpty: false)
+    |> filter(fn: (r) => r._value > 0)
+    |> keep(columns: ["_time"]) 
+    |> sort(columns: ["_time"])`, r.bucket, rangeClause, clientFilter)
+
+    res, err := r.client.QueryAPI(r.org).Query(ctx, flux)
+    if err != nil {
+        return nil, fmt.Errorf("query influx failed: %w", err)
+    }
+
+    var dates []string
+    for res.Next() {
+        t := res.Record().Time().UTC()
+        dates = append(dates, t.Format("2006-01-02"))
+    }
+    if res.Err() != nil {
+        return nil, res.Err()
+    }
+    return dates, nil
+}
+
 // GetAvailableDatesDF mengambil daftar tanggal yang tersedia untuk data DF sensor.
 // Menggunakan Flux query untuk mendapatkan tanggal-tanggal unik dari measurement df_sensor.
 func (r *InfluxRepository) GetAvailableDatesDF(
-	ctx context.Context,
-	start, stop *time.Time,
-	clientCode string,
+    ctx context.Context,
+    start, stop *time.Time,
+    clientCode string,
 ) ([]string, error) {
 
 	// Build Flux range clause
@@ -668,12 +797,75 @@ func (r *InfluxRepository) GetAvailableDatesDF(
 	return dates, nil
 }
 
+// GetAvailableDatesDFV2 mengambil daftar tanggal (YYYY-MM-DD) dengan optimasi
+// menggunakan aggregateWindow harian dan range dinamis (default -30d bila start/stop kosong).
+func (r *InfluxRepository) GetAvailableDatesDFV2(
+    ctx context.Context,
+    start, stop *time.Time,
+    clientCode string,
+) ([]string, error) {
+
+    // Build Flux range clause
+    var rangeClause string
+    const maxTime = "2100-01-01T00:00:00Z"
+    switch {
+    case start != nil && stop != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+            start.UTC().Format(time.RFC3339),
+            stop.UTC().Format(time.RFC3339),
+        )
+    case start != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+            start.UTC().Format(time.RFC3339), maxTime,
+        )
+    case stop != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "%s"))`,
+            stop.UTC().Format(time.RFC3339),
+        )
+    default:
+        rangeClause = `|> range(start: -30d)`
+    }
+
+    // Optional client_code filter
+    clientFilter := ""
+    if clientCode != "" {
+        clientFilter = fmt.Sprintf(`|> filter(fn: (r) => r.client_code == "%s")`, clientCode)
+    }
+
+    // Flux dengan aggregateWindow harian
+    flux := fmt.Sprintf(`
+from(bucket: "%s")
+    %s
+    |> filter(fn: (r) => r._measurement == "df_sensor")
+    |> filter(fn: (r) => r._field == "json_data")
+    %s
+    |> aggregateWindow(every: 1d, fn: count, createEmpty: false)
+    |> filter(fn: (r) => r._value > 0)
+    |> keep(columns: ["_time"]) 
+    |> sort(columns: ["_time"])`, r.bucket, rangeClause, clientFilter)
+
+    res, err := r.client.QueryAPI(r.org).Query(ctx, flux)
+    if err != nil {
+        return nil, fmt.Errorf("query influx failed: %w", err)
+    }
+
+    var dates []string
+    for res.Next() {
+        t := res.Record().Time().UTC()
+        dates = append(dates, t.Format("2006-01-02"))
+    }
+    if res.Err() != nil {
+        return nil, res.Err()
+    }
+    return dates, nil
+}
+
 // GetAvailableDatesADSB mengambil daftar tanggal yang tersedia untuk data ADSB sensor.
 // Menggunakan Flux query untuk mendapatkan tanggal-tanggal unik dari measurement adsb_sensor.
 func (r *InfluxRepository) GetAvailableDatesADSB(
-	ctx context.Context,
-	start, stop *time.Time,
-	clientCode string,
+    ctx context.Context,
+    start, stop *time.Time,
+    clientCode string,
 ) ([]string, error) {
 
 	// Build Flux range clause
@@ -741,4 +933,67 @@ func (r *InfluxRepository) GetAvailableDatesADSB(
 	}
 
 	return dates, nil
+}
+
+// GetAvailableDatesADSBV2 mengambil daftar tanggal (YYYY-MM-DD) dengan optimasi
+// menggunakan aggregateWindow harian dan range dinamis (default -30d bila start/stop kosong).
+func (r *InfluxRepository) GetAvailableDatesADSBV2(
+    ctx context.Context,
+    start, stop *time.Time,
+    clientCode string,
+) ([]string, error) {
+
+    // Build Flux range clause
+    var rangeClause string
+    const maxTime = "2100-01-01T00:00:00Z"
+    switch {
+    case start != nil && stop != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+            start.UTC().Format(time.RFC3339),
+            stop.UTC().Format(time.RFC3339),
+        )
+    case start != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "%s"), stop: time(v: "%s"))`,
+            start.UTC().Format(time.RFC3339), maxTime,
+        )
+    case stop != nil:
+        rangeClause = fmt.Sprintf(`|> range(start: time(v: "1970-01-01T00:00:00Z"), stop: time(v: "%s"))`,
+            stop.UTC().Format(time.RFC3339),
+        )
+    default:
+        rangeClause = `|> range(start: -30d)`
+    }
+
+    // Optional client_code filter
+    clientFilter := ""
+    if clientCode != "" {
+        clientFilter = fmt.Sprintf(`|> filter(fn: (r) => r.client_code == "%s")`, clientCode)
+    }
+
+    // Flux dengan aggregateWindow harian
+    flux := fmt.Sprintf(`
+from(bucket: "%s")
+    %s
+    |> filter(fn: (r) => r._measurement == "adsb_sensor")
+    |> filter(fn: (r) => r._field == "json_data")
+    %s
+    |> aggregateWindow(every: 1d, fn: count, createEmpty: false)
+    |> filter(fn: (r) => r._value > 0)
+    |> keep(columns: ["_time"]) 
+    |> sort(columns: ["_time"])`, r.bucket, rangeClause, clientFilter)
+
+    res, err := r.client.QueryAPI(r.org).Query(ctx, flux)
+    if err != nil {
+        return nil, fmt.Errorf("query influx failed: %w", err)
+    }
+
+    var dates []string
+    for res.Next() {
+        t := res.Record().Time().UTC()
+        dates = append(dates, t.Format("2006-01-02"))
+    }
+    if res.Err() != nil {
+        return nil, res.Err()
+    }
+    return dates, nil
 }
