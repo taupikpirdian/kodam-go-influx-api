@@ -42,16 +42,18 @@ func (r *InfluxRepository) Close() {
 	}
 }
 
-// CheckConnection melakukan ping ke server InfluxDB. Jika gagal, kembalikan error.
+// CheckConnection melakukan health check ke server InfluxDB.
+// Menggunakan Client.GetHealth (via Health) untuk pemeriksaan yang lebih akurat dibanding Ping.
 func (r *InfluxRepository) CheckConnection(ctx context.Context) error {
-	ok, err := r.client.Ping(ctx)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("failed to ping InfluxDB")
-	}
-	return nil
+    // Beberapa versi client expose Health(), yang memanggil API GetHealth di bawahnya.
+    // Jika Health mengembalikan error, berarti koneksi/health InfluxDB bermasalah.
+    if r.client == nil {
+        return fmt.Errorf("influx client is nil")
+    }
+    if _, err := r.client.Health(ctx); err != nil {
+        return fmt.Errorf("influxdb health check failed: %w", err)
+    }
+    return nil
 }
 
 // WritePersonelSensor menulis data ke measurement personel_sensor dengan tag client_code
